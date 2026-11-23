@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:banca-test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000
+    username: sa
+    password:
+
+app:
+  jwt:
+    secret: test-secret-for-automated-tests-0123456789
+    expiration-minutes: 30
+  seed:
+    enabled: false

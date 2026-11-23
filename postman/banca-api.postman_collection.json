@@ -1,0 +1,271 @@
+{
+  "info": {
+    "name": "Banking API (datos ficticios)",
+    "description": "Flujo completo de la guía: login, alta de cliente, apertura de cuentas, depósito, transferencia, consulta de saldos e historial, más casos de error. Ejecuta las carpetas en orden con el Collection Runner. Variable baseUrl: http://localhost:8080 (o 8082 en desarrollo local).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "demoPassword", "value": "Demo1234!" },
+    { "key": "operatorToken", "value": "" },
+    { "key": "customerToken", "value": "" },
+    { "key": "otherToken", "value": "" },
+    { "key": "customerEmail", "value": "" },
+    { "key": "accountA", "value": "" },
+    { "key": "accountB", "value": "" },
+    { "key": "accountBNumber", "value": "" },
+    { "key": "transferKey", "value": "" },
+    { "key": "transferRef", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Flujo principal",
+      "item": [
+        {
+          "name": "Login operador",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('operatorToken', pm.response.json().token);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"operador@banca.demo\",\n  \"password\": \"{{demoPassword}}\"\n}" }
+          }
+        },
+        {
+          "name": "Crear cliente ficticio (operador)",
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [
+              "pm.collectionVariables.set('customerEmail', 'cliente.' + Date.now() + '@banca.demo');"
+            ] } },
+            { "listen": "test", "script": { "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "pm.test('No devuelve la contraseña', () => pm.expect(pm.response.text()).not.to.include('Secreta123'));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{operatorToken}}" }],
+            "url": "{{baseUrl}}/api/customers",
+            "body": { "mode": "raw", "raw": "{\n  \"fullName\": \"Cliente Postman (demo)\",\n  \"email\": \"{{customerEmail}}\",\n  \"phone\": \"+52 55 0000 0099\",\n  \"password\": \"Secreta123\"\n}" }
+          }
+        },
+        {
+          "name": "Login cliente nuevo",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('customerToken', pm.response.json().token);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"Secreta123\"\n}" }
+          }
+        },
+        {
+          "name": "Abrir cuenta A (corriente MXN)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('201 Created', () => pm.response.to.have.status(201));",
+            "pm.collectionVariables.set('accountA', pm.response.json().id);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }],
+            "url": "{{baseUrl}}/api/accounts",
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"CHECKING\",\n  \"currency\": \"MXN\"\n}" }
+          }
+        },
+        {
+          "name": "Abrir cuenta B (ahorro MXN)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('201 Created', () => pm.response.to.have.status(201));",
+            "pm.collectionVariables.set('accountB', pm.response.json().id);",
+            "pm.collectionVariables.set('accountBNumber', pm.response.json().number);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }],
+            "url": "{{baseUrl}}/api/accounts",
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"SAVINGS\",\n  \"currency\": \"MXN\"\n}" }
+          }
+        },
+        {
+          "name": "Depositar 2000.00 en A",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('201 Created', () => pm.response.to.have.status(201));",
+            "pm.test('Saldo 2000.00', () => pm.expect(pm.response.json().destinationBalanceAfter).to.eql(2000));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }, { "key": "Idempotency-Key", "value": "{{$guid}}" }],
+            "url": "{{baseUrl}}/api/accounts/{{accountA}}/deposits",
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 2000.00,\n  \"description\": \"Depósito de prueba\"\n}" }
+          }
+        },
+        {
+          "name": "Transferir 750.00 de A a B",
+          "event": [
+            { "listen": "prerequest", "script": { "exec": ["pm.collectionVariables.set('transferKey', pm.variables.replaceIn('{{$guid}}'));"] } },
+            { "listen": "test", "script": { "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "pm.test('No es un reintento', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('false'));",
+              "pm.collectionVariables.set('transferRef', pm.response.json().reference);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }, { "key": "Idempotency-Key", "value": "{{transferKey}}" }],
+            "url": "{{baseUrl}}/api/transfers",
+            "body": { "mode": "raw", "raw": "{\n  \"sourceAccountId\": {{accountA}},\n  \"destinationAccountNumber\": \"{{accountBNumber}}\",\n  \"amount\": 750.00,\n  \"description\": \"Ahorro mensual\"\n}" }
+          }
+        },
+        {
+          "name": "Reintentar la misma transferencia (misma Idempotency-Key)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('201 con el resultado original', () => pm.response.to.have.status(201));",
+            "pm.test('Marcado como reintento', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true'));",
+            "pm.test('Misma referencia', () => pm.expect(pm.response.json().reference).to.eql(pm.collectionVariables.get('transferRef')));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }, { "key": "Idempotency-Key", "value": "{{transferKey}}" }],
+            "url": "{{baseUrl}}/api/transfers",
+            "body": { "mode": "raw", "raw": "{\n  \"sourceAccountId\": {{accountA}},\n  \"destinationAccountNumber\": \"{{accountBNumber}}\",\n  \"amount\": 750.00,\n  \"description\": \"Ahorro mensual\"\n}" }
+          }
+        },
+        {
+          "name": "Saldo cuenta A (1250.00)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Saldo 1250.00', () => pm.expect(pm.response.json().balance).to.eql(1250));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{customerToken}}" }], "url": "{{baseUrl}}/api/accounts/{{accountA}}" }
+        },
+        {
+          "name": "Saldo cuenta B (750.00)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Saldo 750.00', () => pm.expect(pm.response.json().balance).to.eql(750));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{customerToken}}" }], "url": "{{baseUrl}}/api/accounts/{{accountB}}" }
+        },
+        {
+          "name": "Historial cuenta A",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('2 movimientos', () => pm.expect(pm.response.json().totalElements).to.eql(2));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{customerToken}}" }], "url": "{{baseUrl}}/api/accounts/{{accountA}}/transactions?page=0&size=20" }
+        },
+        {
+          "name": "Comprobante de la transferencia",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('COMPLETED', () => pm.expect(pm.response.json().status).to.eql('COMPLETED'));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{customerToken}}" }], "url": "{{baseUrl}}/api/transactions/{{transferRef}}" }
+        }
+      ]
+    },
+    {
+      "name": "2. Casos de error",
+      "item": [
+        {
+          "name": "Retiro mayor al saldo → 422 INSUFFICIENT_FUNDS",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('422', () => pm.response.to.have.status(422));",
+            "pm.test('Código', () => pm.expect(pm.response.json().code).to.eql('INSUFFICIENT_FUNDS'));",
+            "pm.test('Rechazo registrado con referencia', () => pm.expect(pm.response.json().reference).to.match(/^TRX-/));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }, { "key": "Idempotency-Key", "value": "{{$guid}}" }],
+            "url": "{{baseUrl}}/api/accounts/{{accountA}}/withdrawals",
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 999999.99\n}" }
+          }
+        },
+        {
+          "name": "Importe negativo → 400 VALIDATION_ERROR",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('400', () => pm.response.to.have.status(400));", "pm.test('Campo amount', () => pm.expect(pm.response.json().fieldErrors[0].field).to.eql('amount'));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }, { "key": "Idempotency-Key", "value": "{{$guid}}" }],
+            "url": "{{baseUrl}}/api/accounts/{{accountA}}/deposits",
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": -10\n}" }
+          }
+        },
+        {
+          "name": "Más de 2 decimales → 400",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }, { "key": "Idempotency-Key", "value": "{{$guid}}" }],
+            "url": "{{baseUrl}}/api/accounts/{{accountA}}/deposits",
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 10.001\n}" }
+          }
+        },
+        {
+          "name": "Sin Idempotency-Key → 400 IDEMPOTENCY_KEY_REQUIRED",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('400', () => pm.response.to.have.status(400));", "pm.test('Código', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REQUIRED'));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }],
+            "url": "{{baseUrl}}/api/accounts/{{accountA}}/deposits",
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 10\n}" }
+          }
+        },
+        {
+          "name": "Misma clave con otros datos → 409 IDEMPOTENCY_KEY_REUSED",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('409', () => pm.response.to.have.status(409));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{customerToken}}" }, { "key": "Idempotency-Key", "value": "{{transferKey}}" }],
+            "url": "{{baseUrl}}/api/transfers",
+            "body": { "mode": "raw", "raw": "{\n  \"sourceAccountId\": {{accountA}},\n  \"destinationAccountNumber\": \"{{accountBNumber}}\",\n  \"amount\": 1.00\n}" }
+          }
+        },
+        {
+          "name": "Login de otro cliente (Luis)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.collectionVariables.set('otherToken', pm.response.json().token);"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"luis.perez@banca.demo\",\n  \"password\": \"{{demoPassword}}\"\n}" }
+          }
+        },
+        {
+          "name": "Consultar cuenta ajena → 404",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('404', () => pm.response.to.have.status(404));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{otherToken}}" }], "url": "{{baseUrl}}/api/accounts/{{accountA}}" }
+        },
+        {
+          "name": "Retirar de cuenta ajena → 404",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('404', () => pm.response.to.have.status(404));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{otherToken}}" }, { "key": "Idempotency-Key", "value": "{{$guid}}" }],
+            "url": "{{baseUrl}}/api/accounts/{{accountA}}/withdrawals",
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 10\n}" }
+          }
+        },
+        {
+          "name": "Operador intenta depositar → 403",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('403', () => pm.response.to.have.status(403));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{operatorToken}}" }, { "key": "Idempotency-Key", "value": "{{$guid}}" }],
+            "url": "{{baseUrl}}/api/accounts/{{accountA}}/deposits",
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 10\n}" }
+          }
+        },
+        {
+          "name": "Cerrar cuenta con saldo → 422 ACCOUNT_HAS_BALANCE",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('422', () => pm.response.to.have.status(422));"] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{operatorToken}}" }],
+            "url": "{{baseUrl}}/api/accounts/{{accountA}}/status",
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"CLOSED\",\n  \"reason\": \"Prueba\"\n}" }
+          }
+        },
+        {
+          "name": "Sin token → 401",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('401', () => pm.response.to.have.status(401));"] } }],
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/accounts" }
+        }
+      ]
+    }
+  ]
+}
